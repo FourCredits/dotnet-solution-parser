@@ -3,12 +3,14 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TypeApplications #-}
 
 module Main (main) where
 
 import Data.Aeson
 import Data.List ((\\))
 import qualified Data.Map as M
+import Text.Parsec hiding ((<|>))
 import qualified Text.Parsec as P
 
 main :: IO ()
@@ -16,13 +18,9 @@ main = do
   args <- getArgs
   case args of
     [filePath] -> do
-      fileContents <- readFileBS filePath
-      let parseResult = P.parse solution filePath fileContents
-      print parseResult
-      whenRight_ parseResult $ \s -> do
-        let tree = buildTree s
-        print tree
-        putLBSLn $ encode tree
+      fileContents <- decodeUtf8 @Text @ByteString <$> readFileBS filePath
+      let parseResult = parse solution filePath fileContents
+      whenRight_ parseResult $ putLBSLn . encode . buildTree
     _ -> putStrLn "wrong number of arguments (expecting one)" *> exitFailure
 
 -- parsing
@@ -61,7 +59,7 @@ data Solution = Solution
   }
   deriving (Show, Eq)
 
-type Parser s u m a = (P.Stream s m Char) => P.ParsecT s u m a
+type Parser s u m a = (Stream s m Char) => ParsecT s u m a
 
 data TreeStructure
   = LeafProject Text Path
@@ -97,115 +95,112 @@ buildTree (Solution {solutionProjects, solutionGlobal}) =
 solution :: Parser s u m Solution
 solution =
   Solution
-    <$> header
-    <*> P.sepEndBy project P.newline
+    <$> (P.optional bom *> P.optional endOfLine *> header)
+    <*> sepEndBy project endOfLine
     <*> global
+
+bom :: Parser s u m ()
+bom = void (char (chr 0xffef) <|> char (chr 0xfeff))
 
 global :: Parser s u m Global
 global = do
-  void $ P.string "Global\n"
-  sections <- P.endBy globalSection P.newline
-  void $ P.string "EndGlobal"
+  void (string "Global" <* endOfLine)
+  sections <- endBy globalSection endOfLine
+  void $ string "EndGlobal"
   pure $ Global {nestedProjects = fromMaybe mempty $ mconcat sections}
 
 globalSection :: Parser s u m (Maybe [(Guid, Guid)])
 globalSection = do
-  void $ ignoreStartingSpaces (P.string "GlobalSection")
-  sectionType <- betweenBrackets (P.many (P.satisfy (/= ')')))
+  void (skipMany space *> string "GlobalSection")
+  sectionType <- betweenBrackets (P.many (satisfy (/= ')')))
   preOrPost <-
-    P.string " = "
-      *> (P.try (P.string "preSolution") <|> P.string "postSolution")
-      <* P.newline
+    string " = "
+      *> (try (string "preSolution") <|> string "postSolution")
+      <* endOfLine
   case (sectionType, preOrPost) of
     ("NestedProjects", "preSolution") -> do
       Just
-        <$> P.manyTill
-          (ignoreStartingSpaces folderRelation <* P.newline)
+        <$> manyTill
+          (skipMany space *> folderRelation <* endOfLine)
           endGlobalSection
     _ ->
-      P.manyTill arbitraryLine endGlobalSection $> Just []
+      manyTill arbitraryLine endGlobalSection $> Just []
   where
     endGlobalSection =
-      void $ P.try $ ignoreStartingSpaces $ P.string "EndGlobalSection"
+      void $ try (skipMany space *> string "EndGlobalSection")
 
 arbitraryLine :: Parser s u m ()
-arbitraryLine = void $ P.manyTill P.anyToken P.newline
+arbitraryLine = void $ manyTill anyToken endOfLine
 
 folderRelation :: Parser s u m (Guid, Guid)
 folderRelation =
-  (,) <$> betweenBraces guid <*> (P.string " = " *> betweenBraces guid)
-
--- NOTE: assumes that the parser only uses one line
-ignoreStartingSpaces :: Parser s u m a -> Parser s u m a
-ignoreStartingSpaces p = P.skipMany (P.satisfy (`elem` whitespace)) *> p
-  where
-    whitespace = "\n\t" :: String
+  (,) <$> betweenBraces guid <*> (string " = " *> betweenBraces guid)
 
 -- TODO: there is sometimes stuff inside a between the first line and
 -- `EndProject`, right?
 project :: Parser s u m Project
 project = do
-  void $ P.string "Project"
+  void $ string "Project"
   projectType <- betweenBrackets $ betweenQuotes $ betweenBraces guid
-  void $ P.string " = "
-  projectName <- betweenQuotes (toText <$> P.many (P.satisfy (/= '"')))
-  void $ P.string ", "
+  void $ string " = "
+  projectName <- betweenQuotes (toText <$> P.many (satisfy (/= '"')))
+  void $ string ", "
   projectPath <- betweenQuotes path
-  void $ P.string ", "
+  void $ string ", "
   projectId <- betweenQuotes $ betweenBraces guid
-  void $ P.string "\nEndProject"
+  void (endOfLine *> string "EndProject")
   pure $ Project {projectType, projectName, projectPath, projectId}
 
-path :: (P.Stream s m Char) => P.ParsecT s u m Path
-path = P.sepBy1 pathElement (P.char '/' <|> P.char '\\')
+path :: (Stream s m Char) => ParsecT s u m Path
+path = sepBy1 pathElement (char '/' <|> char '\\')
   where
-    pathElement = fmap toText $ P.many $ P.satisfy (`notElem` illegalPathChars)
-    illegalPathChars = "/\"\\" :: String
+    pathElement = fmap toText $ P.many $ noneOf "/\"\\"
 
 betweenBrackets :: Parser s u m a -> Parser s u m a
-betweenBrackets = P.between (P.char '(') (P.char ')')
+betweenBrackets = between (char '(') (char ')')
 
 betweenQuotes :: Parser s u m a -> Parser s u m a
-betweenQuotes = P.between (P.char '"') (P.char '"')
+betweenQuotes = between (char '"') (char '"')
 
 betweenBraces :: Parser s u m a -> Parser s u m a
-betweenBraces = P.between (P.char '{') (P.char '}')
+betweenBraces = between (char '{') (char '}')
 
 guid :: Parser s u m Guid
 guid =
   toText . intercalate "-"
     <$> sequence
-      [ P.count 8 P.hexDigit,
-        P.char '-' *> P.count 4 P.hexDigit,
-        P.char '-' *> P.count 4 P.hexDigit,
-        P.char '-' *> P.count 4 P.hexDigit,
-        P.char '-' *> P.count 12 P.hexDigit
+      [ count 8 hexDigit,
+        char '-' *> count 4 hexDigit,
+        char '-' *> count 4 hexDigit,
+        char '-' *> count 4 hexDigit,
+        char '-' *> count 12 hexDigit
       ]
 
 header :: Parser s u m Header
 header =
   Header
-    <$> fileFormatVersionP
+    <$> (skipMany space *> fileFormatVersionP)
     <*> visualStudioMajorVersionP
     <*> visualStudioVersionP
     <*> minimumVisualStudioVersionP
   where
     fileFormatVersionP =
-      P.string "Microsoft Visual Studio Solution File, Format Version "
+      string "Microsoft Visual Studio Solution File, Format Version "
         *> version
-        <* P.newline
-    visualStudioMajorVersionP =
-      P.string "# Visual Studio Version " *> int <* P.newline
+        <* endOfLine
+    visualStudioMajorVersionP = majorVersionPrefix *> int <* endOfLine
+    majorVersionPrefix =
+      string "# Visual Studio " *> P.optional (string "Version ")
     visualStudioVersionP =
-      P.string "VisualStudioVersion = " *> version <* P.newline
+      string "VisualStudioVersion = " *> version <* endOfLine
     minimumVisualStudioVersionP =
-      P.string "MinimumVisualStudioVersion = " *> version <* P.newline
+      string "MinimumVisualStudioVersion = " *> version <* endOfLine
 
 version :: Parser s u m Version
-version = P.sepBy1 int (P.char '.')
+version = sepBy1 int (char '.')
 
 -- TODO: better int parsing?
 int :: Parser s u m Int
-int = P.many P.digit >>= toInt
+int = P.many digit >>= toInt
   where
-    toInt = maybe (fail "couldn't parse an integer") pure . readMaybe . toString
+    toInt = maybe (fail "failed parsing an int") pure . readMaybe . toString
