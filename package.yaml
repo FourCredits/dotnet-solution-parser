@@ -1,0 +1,47 @@
+spec-version: 0.36.0
+name: dotnet-solution-parser
+version: 0.1.0
+synopsis: A little tool that parses out the virtual folder structure hidden in .NET .sln files
+author: Erik Grundy <erik.grundy@gmail.com>
+maintainer: Erik Grundy <erik.grundy@gmail.com>
+category: Development
+
+dependencies:
+  base:
+    version: ">= 4.17.2 && < 4.18"
+    mixin:
+      - hiding (Prelude)
+  relude:
+    version: ^>= 1.2.1
+    mixin:
+      - (Relude as Prelude)
+      - ""
+  parsec: ">= 3.1.16 && < 3.2"
+  containers: "^>= 0.6.7"
+  aeson: "^>= 2.2"
+
+ghc-options:
+  - -Wall
+  - -Wcompat
+  - -Widentities
+  - -Wincomplete-record-updates
+  - -Wincomplete-uni-patterns
+  - -Wpartial-fields
+  - -Wredundant-constraints
+
+default-extensions:
+  - OverloadedStrings
+
+executable:
+  main: Main.hs
+  source-dirs: app
+
+# tests:
+#   spec:
+#     main: Spec.hs
+#     source-dirs: test
+#     dependencies:
+#       - hspec == 2.*
+#       - aoc2023
+#     build-tools: hspec-discover
+#     generated-other-modules: Paths_aoc2023

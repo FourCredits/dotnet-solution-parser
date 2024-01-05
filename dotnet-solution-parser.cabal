@@ -1,0 +1,32 @@
+cabal-version: 2.0
+
+-- This file has been generated from package.yaml by hpack version 0.36.0.
+--
+-- see: https://github.com/sol/hpack
+
+name:           dotnet-solution-parser
+version:        0.1.0
+synopsis:       A little tool that parses out the virtual folder structure hidden in .NET .sln files
+category:       Development
+author:         Erik Grundy <erik.grundy@gmail.com>
+maintainer:     Erik Grundy <erik.grundy@gmail.com>
+build-type:     Simple
+
+executable dotnet-solution-parser
+  main-is: Main.hs
+  hs-source-dirs:
+      app
+  default-extensions:
+      OverloadedStrings
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wpartial-fields -Wredundant-constraints
+  build-depends:
+      aeson ==2.2.*
+    , base >=4.17.2 && <4.18
+    , containers >=0.6.7 && <0.7
+    , parsec >=3.1.16 && <3.2
+    , relude >=1.2.1 && <1.3
+  mixins:
+      base hiding (Prelude)
+    , relude (Relude as Prelude)
+    , relude 
+  default-language: Haskell2010
