@@ -146,8 +146,8 @@ project = do
   void $ string ", "
   projectPath <- betweenQuotes path
   void $ string ", "
-  projectId <- betweenQuotes $ betweenBraces guid
-  void (endOfLine *> string "EndProject")
+  projectId <- betweenQuotes (betweenBraces guid) <* endOfLine
+  void $ manyTill arbitraryLine (string "EndProject")
   pure $ Project {projectType, projectName, projectPath, projectId}
 
 path :: (Stream s m Char) => ParsecT s u m Path
