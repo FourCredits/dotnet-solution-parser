@@ -19,8 +19,9 @@ main = do
   case args of
     [filePath] -> do
       fileContents <- decodeUtf8 @Text @ByteString <$> readFileBS filePath
-      let parseResult = parse solution filePath fileContents
-      whenRight_ parseResult $ putLBSLn . encode . buildTree
+      case parse solution filePath fileContents of
+        Right result -> putLBSLn $ encode $ buildTree result
+        Left _ -> exitFailure
     _ -> putStrLn "wrong number of arguments (expecting one)" *> exitFailure
 
 -- parsing
