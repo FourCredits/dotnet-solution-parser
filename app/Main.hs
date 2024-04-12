@@ -137,8 +137,6 @@ folderRelation :: Parser s u m (Guid, Guid)
 folderRelation =
   (,) <$> betweenBraces guid <*> (string " = " *> betweenBraces guid)
 
--- TODO: there is sometimes stuff inside a between the first line and
--- `EndProject`, right?
 project :: Parser s u m Project
 project = do
   void $ string "Project"
